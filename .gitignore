@@ -1,3 +1,10 @@
 week04/backups/
 week04/restore-check/
 *Zone.Identifier
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
