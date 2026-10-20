@@ -88,7 +88,14 @@ jobs:
           } > recovery-proof.txt
       - name: Recovery result - actual measured output
         working-directory: guestbook
-        run: cat recovery-proof.txt
+        run: |
+          cat recovery-proof.txt
+          {
+            echo '### web=3 actual recovery result'
+            echo '```text'
+            cat recovery-proof.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Diagnostic logs on failure
         if: failure()
         working-directory: guestbook
