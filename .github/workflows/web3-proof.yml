@@ -1,0 +1,103 @@
+name: web3 recovery proof
+on:
+  push:
+    branches:
+      - test/web3-recovery-proof-20261020
+permissions:
+  contents: read
+jobs:
+  recovery:
+    name: Docker Compose web=3 recovery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Build and start the original stack
+        working-directory: guestbook
+        run: |
+          set -euo pipefail
+          printf 'REDIS_PASSWORD=%s\n' "$(openssl rand -hex 16)" > .env
+          docker --version
+          docker compose version
+          docker compose config --quiet
+          docker compose up -d --build --scale web=3 --wait --wait-timeout 120
+      - name: Stop one web and measure actual recovery
+        working-directory: guestbook
+        run: |
+          set -euo pipefail
+          count_running() { docker compose ps --status running -q web | sed '/^$/d' | wc -l | xargs; }
+          before=$(count_running)
+          test "$before" -eq 3
+          bash keep-web3.sh > watchdog.log 2>&1 &
+          watchdog_pid=$!
+          trap 'kill "$watchdog_pid" 2>/dev/null || true' EXIT
+          # Wait until the real watchdog enters its first 5-second sleep.
+          sleeping=false
+          for i in $(seq 1 100); do
+            if pgrep -P "$watchdog_pid" -x sleep >/dev/null; then sleeping=true; break; fi
+            sleep 0.1
+          done
+          test "$sleeping" = true
+          victim=$(docker compose ps --status running -q web | head -n 1)
+          docker stop --time 0 "$victim" >/dev/null
+          started_ns=$(date +%s%N)
+          stopped=$(count_running)
+          test "$stopped" -eq 2
+          docker compose ps --all web > stopped-state.txt
+          recovered=false
+          for i in $(seq 1 120); do
+            after=$(count_running)
+            if [ "$after" -eq 3 ]; then recovered=true; break; fi
+            sleep 0.25
+          done
+          test "$recovered" = true
+          finished_ns=$(date +%s%N)
+          elapsed=$(python3 -c "print(f'{($finished_ns - $started_ns)/1e9:.2f}')")
+          ready=false
+          for i in $(seq 1 120); do
+            healthy=0
+            for cid in $(docker compose ps --status running -q web); do
+              if [ "$(docker inspect --format '{{.State.Health.Status}}' "$cid")" = healthy ]; then healthy=$((healthy+1)); fi
+            done
+            if [ "$healthy" -eq 3 ]; then ready=true; break; fi
+            sleep 0.25
+          done
+          test "$ready" = true
+          http_status=$(curl --silent --output /dev/null --write-out '%{http_code}' --retry 5 --retry-all-errors --retry-delay 1 http://localhost:8080)
+          test "$http_status" = 200
+          {
+            echo "Environment: GitHub Actions Ubuntu 24.04"
+            echo "Measured at (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "Source commit: $GITHUB_SHA"
+            echo "Watchdog: bash guestbook/keep-web3.sh (original script)"
+            echo "Running web before stop: $before"
+            echo "Running web immediately after stop: $stopped"
+            echo "Running web after recovery: $after"
+            echo "Elapsed from stop completion to running=3: $elapsed seconds"
+            echo "Healthy web after waiting: $healthy"
+            echo "HTTP localhost:8080: $http_status"
+            echo
+            echo '$ docker compose ps --all web (immediately after stop)'
+            cat stopped-state.txt
+            echo
+            echo '$ docker compose ps web (after recovery and health checks)'
+            docker compose ps web
+          } > recovery-proof.txt
+      - name: Recovery result - actual measured output
+        working-directory: guestbook
+        run: cat recovery-proof.txt
+      - name: Diagnostic logs on failure
+        if: failure()
+        working-directory: guestbook
+        run: |
+          docker compose ps --all
+          test ! -f watchdog.log || cat watchdog.log
+          docker compose logs --tail 50 web
+      - name: Clean up this temporary runner
+        if: always()
+        working-directory: guestbook
+        run: docker compose down
+
