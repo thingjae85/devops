@@ -1,0 +1,25 @@
+Original GitHub Actions run:
+https://github.com/thingjae85/devops/actions/runs/39378789721/job/118482859041
+
+Environment: GitHub Actions Ubuntu 24.04
+Measured at (UTC): 2026-10-20T06:10:14Z
+Source commit: c3dc9dd1af60539fc325909ea39dbd8d32caa769
+Watchdog: bash guestbook/keep-web3.sh (original script)
+Running web before stop: 3
+Running web immediately after stop: 2
+Running web after recovery: 3
+Elapsed from stop completion to running=3: 5.06 seconds
+Healthy web after waiting: 3
+HTTP localhost:8080: 200
+
+$ docker compose ps --all web (immediately after stop)
+NAME              IMAGE           COMMAND           SERVICE   CREATED          STATUS                                PORTS
+guestbook-web-1   guestbook-web   "python app.py"   web       12 seconds ago   Exited (137) Less than a second ago   
+guestbook-web-2   guestbook-web   "python app.py"   web       12 seconds ago   Up 6 seconds (healthy)                5000/tcp
+guestbook-web-3   guestbook-web   "python app.py"   web       12 seconds ago   Up 7 seconds (healthy)                5000/tcp
+
+$ docker compose ps web (after recovery and health checks)
+NAME              IMAGE           COMMAND           SERVICE   CREATED          STATUS                    PORTS
+guestbook-web-1   guestbook-web   "python app.py"   web       23 seconds ago   Up 5 seconds (healthy)    5000/tcp
+guestbook-web-2   guestbook-web   "python app.py"   web       23 seconds ago   Up 17 seconds (healthy)   5000/tcp
+guestbook-web-3   guestbook-web   "python app.py"   web       23 seconds ago   Up 17 seconds (healthy)   5000/tcp
